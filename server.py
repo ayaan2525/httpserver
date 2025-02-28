@@ -2,11 +2,15 @@ import socket
 import threading
 
 # server address and port
-HOST, PORT = "", 8002
+HOST, PORT = "", 8004
 
 def parse_request(request):
     lines = request.split('\r\n')
-    method, path, _ = lines[0].split()
+    method, full_path, http_version = lines[0].split()
+
+    # Remove query parameters (anything after '?')
+    path = full_path.split('?')[0]
+
     headers ={}
     for line in lines[1:]:
         if ':' in line:
@@ -61,13 +65,12 @@ def handle_request(client_conn):
             """
             status_code = "404 not found"
 
-    http_response = f"""
-    HTTP/1.1 {status_code}
-    Content-Type:text/html; charset=UTF-8
-    Content-Length: {len(response_body)}
+    http_response = f"HTTP/1.1 {status_code}\r\n"
+    http_response += "Content-Type: text/html; charset=UTF-8\r\n"
+    http_response += f"Content-Length: {len(response_body)}\r\n"
+    http_response += "Connection: close\r\n\r\n"  # Correct HTTP format
+    http_response += response_body  # Append the actual content
 
-    {response_body}
-    """
     client_conn.sendall(http_response.encode("utf-8"))
     client_conn.close()
 
