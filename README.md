@@ -1,1 +1,1 @@
-This is a simple basic implementation of http server built using python.
+Multi-threaded HTTP Server in Python
