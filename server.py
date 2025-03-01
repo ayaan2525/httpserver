@@ -1,8 +1,10 @@
 import socket
 import threading
+import os
 
 # server address and port
-HOST, PORT = "", 8004
+HOST, PORT = "", 8000
+TEMPLATES_DIR = "templates"
 
 def parse_request(request):
     lines = request.split('\r\n')
@@ -18,52 +20,28 @@ def parse_request(request):
             headers[key.strip()] = value.strip()
     return method, path, headers
 
+def read_html_files(filename):
+    filepath = os.path.join(TEMPLATES_DIR, filename)
+    if os.path.exists(filepath):
+        with open(filepath, "r", encoding="utf-8") as file:
+            return file.read()
+    return None
+
 def handle_request(client_conn):
     request_data = client_conn.recv(1024).decode("utf-8")
     print(f"received request:\n{request_data}")
 
     method, path, headers = parse_request(request_data)
 
-    if 'X-Custom-Header' not in headers:
-        response_body = """
-        <html>
-        <body>
-        <h1>400 Bad Request</h1>
-        <p>X-Custom-Header is required.</p>
-        </body>
-        </html>
-        """
-        status_code = "400 Bad Request"
-
+    if path == '/':
+        response_body = read_html_files("index.html")
+        status_code = "200 OK" if response_body else "404 Not found"
+    elif path =='/about':
+        response_body = read_html_files("about.html")
+        status_code = "200 OK" if response_body else "404 Not found"
     else:
-        if path == '/':
-            response_body = """
-            <html>
-            <head><title>Home</title></head>
-            <body>
-            <h1>Welcome to the Home Page!</h1>
-            </body>
-            </html>
-            """
-            status_code = "200 OK"
-        elif path =='/about':
-            response_body = """
-            <html>
-            <head><title>About</title></head>
-            <body><h1>About us</h1>
-            <p>This is a simple Http server.</p>
-            </body>
-            </html>
-            """
-            status_code = "200 OK"
-        else:
-            response_body = """
-            <html>
-            <head><title>404 not found</title></head>
-            <body><h1>404 not found</h1></body>
-            </html>
-            """
-            status_code = "404 not found"
+        response_body = "<h1> 404 Not found</h1>"
+        status_code = "404 not found"
 
     http_response = f"HTTP/1.1 {status_code}\r\n"
     http_response += "Content-Type: text/html; charset=UTF-8\r\n"
