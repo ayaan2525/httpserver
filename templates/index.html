@@ -1,22 +1,19 @@
-<!Doctype html>
+<!DOCTYPE HTML>
 <html>
-<head>
-    <tittle>Home</tittle>
-    <link rel="stylesheet" href="/static/styles.css">
-    <script src="/static/script.js"></script>
-</head>
-<style>
-    p {
-      background-image: url('/static/eltz.png');
-      background-repeat: no-repeat;
-      background-attachment: fixed;
-      background-size: 100% 100%;
-    }
-    </style>
-<body>
-    <h1>Welcome to the Home Page!</h1>
-    <p>This is a simple HTTP server</p>
-    <img src="/static/eltz.png" alt="Sample Image" width="300">
+    <head>
+        <title>Home Page</title>
+        <link rel="stylesheet" href="/static/styles.css">
+    </head>
+    <body>
+        <h1>Welcome to my simple http server</h1>
+        <p>This is the Home Page</p>
+        <img src="/static/eltz.png" alt="Sample Image">
 
-</body>
+        <h2>Submit your name</h2>
+        <form action="/submit" method="POST">
+            <label for="name">Enter you name:</label>
+            <input type="text" id="name" name="name" required>
+            <button type="submit">Submit</button>
+        </form>
+    </body>
 </html>
