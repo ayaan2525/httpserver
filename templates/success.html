@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Success</title>
+        <link rel="stylesheet" href="/static/styles.css">
+    </head>
+    <body>
+        <h1>Form submitted Successfully</h1>
+        <p>Hello, <span id="username"></span>!</p>
+        <a href="/">Go Back</a>
+        <script>
+            document.getElementById("username").innerText = new URLSearchParams(window.location.search).get("name");
+        </script>
+    </body>
+</html>
