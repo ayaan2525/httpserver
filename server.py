@@ -1,25 +1,30 @@
 import socket
 import threading
 import os
+import urllib.parse
 
 # server address and port
-HOST, PORT = "", 8003
+HOST, PORT = "", 8000
 TEMPLATES_DIR = "templates"
 STATIC_DIR = "static"
 
 def parse_request(request):
-    lines = request.split('\r\n')
+    if "\r\n\r\n" in request:
+        headers, body = request.split("\r\n\r\n", 1)
+    else:
+        headers, body = request, ""  # Handle cases where the request has no body
+    lines = headers.split('\r\n')
     method, full_path, http_version = lines[0].split()
 
     # Remove query parameters (anything after '?')
     path = full_path.split('?')[0]
 
-    headers ={}
+    headers = {}
     for line in lines[1:]:
         if ':' in line:
             key, value = line.split(':', 1)
             headers[key.strip()] = value.strip()
-    return method, path, headers
+    return method, path, headers, body
 
 def read_file(filepath, mode="r"):
     if os.path.exists(filepath):
@@ -27,7 +32,7 @@ def read_file(filepath, mode="r"):
             return file.read()
     return None
 
-def get_content_type(path):
+""" def get_content_type(path):
     if path.endswith(".html"):
         return "text/html"
     elif path.endswith(".css"):
@@ -38,69 +43,63 @@ def get_content_type(path):
         return "image/png"
     elif path.endswith(".jpg") or path.endswith(".jpeg"):
         return "image/jpeg"
-    return "application/octet-stream"
+    return "application/octet-stream" """
 
 def handle_request(client_conn):
     request_data = client_conn.recv(1024).decode("utf-8")
     print(f"received request:\n{request_data}")
 
-    method, path, headers = parse_request(request_data)
+    method, path, headers, body = parse_request(request_data)
 
-    if path.startswith("/static"):
-        file_path = path.lstrip("/")
-        content_type = get_content_type(file_path)
+    if method == "POST" and path == "/submit":
+        post_data = dict(urllib.parse.parse_qsl(body))
+        name = post_data.get("name", "Guest")
 
-        mode = "rb" if "image" in content_type else "r"
-        response_body = read_file(file_path, mode)
+        response_body = read_file(os.path.join(TEMPLATES_DIR, "success.html"))
+        response_body = response_body.replace("<span id=\"username\"></span>", f"<span>{name}</span>")
 
+        status_code = "200 OK"
+
+    elif path.startswith("/static"):
+        file_path = os.path.join(STATIC_DIR, path[len("/static/"):])
+        content_type = "text/plain"
+
+        if path.endswith(".css"):
+            content_type = "text/css"
+        elif path.endswith(".js"):
+            content_type = "application/javascript"
+        elif path.endswith(".png"):
+            content_type = "image/png"
+
+        response_body = read_file(file_path, "rb")
         if response_body:
             status_code = "200 OK"
         else:
-            response_body = "404 Not found"
-            status_code = "404 Not found"
-        http_response = f"HTTP/1.1 {status_code}\r\n"
-        http_response += "Content-Type: {content_type}}; charset=UTF-8\r\n"
-        http_response += f"Content-Length: {len(response_body)}\r\n"
-        http_response += "Connection: close\r\n\r\n"  # Correct HTTP format
+            response_body = "<h1>404 Not Found</h1>".encode("utf-8")
+            status_code = "404 Not Found"
 
-        if "image" in content_type:
-            client_conn.sendall(http_response.encode() + response_body)
-        else:
-            client_conn.sendall(http_response.encode() + response_body.encode())
+        client_conn.sendall(f"HTTP/1.1 {status_code}\r\nContent-Type: {content_type}\r\n\r\n".encode("utf-8") + response_body)
+        client_conn.close()
+        return
     elif path == "/":
         response_body = read_file(os.path.join(TEMPLATES_DIR, "index.html"))
-        status_code = "200 OK" if response_body else "404 Not found"
-        content_type = "text/html"
-
-        http_response = f"HTTP/1.1 {status_code}\r\n"
-        http_response += "Content-Type: {content_type}; charset=UTF-8\r\n"
-        http_response += f"Content-Length: {len(response_body)}\r\n"
-        http_response += "Connection: close\r\n\r\n"  # Correct HTTP format
-        http_response += response_body  # Append the actual content
-
-        client_conn.sendall(http_response.encode("utf-8"))
+        status_code = "200 OK" if response_body else "404 Not Found"
     elif path == "/about":
         response_body = read_file(os.path.join(TEMPLATES_DIR, "about.html"))
-        status_code = "200 OK" if response_body else "404 Not found"
-        content_type = "text/html"
+        status_code = "200 OK" if response_body else "404 Not Found"
 
-        http_response = f"HTTP/1.1 {status_code}\r\n"
-        http_response += "Content-Type: {content_type}; charset=UTF-8\r\n"
-        http_response += f"Content-Length: {len(response_body)}\r\n"
-        http_response += "Connection: close\r\n\r\n"  # Correct HTTP format
-        http_response += response_body  # Append the actual content
-
-        client_conn.sendall(http_response.encode("utf-8"))
-    
     else:
-        response_body = "<h1>404 Not found</h1>"
-        http_response = "HTTP/1.1 404 Not found\r\n"
-        http_response = "Content-Type: text/html; charset=UTF-8\r\n"
-        http_response += f"Content-Length: {len(response_body)}\r\n"
-        http_response += "Connection: close\r\n\r\n"  # Correct HTTP format
-        http_response += response_body  # Append the actual content
+        response_body = "<h1>404 Not Found</h1>"
+        status_code = "404 Not Found"
 
-        client_conn.sendall(http_response.encode("utf-8"))
+    # Prepare HTTP response
+    http_response = f"HTTP/1.1 {status_code}\r\n"
+    http_response += "Content-Type: text/html; charset=UTF-8\r\n"
+    http_response += f"Content-Length: {len(response_body.encode('utf-8'))}\r\n"
+    http_response += "Connection: close\r\n\r\n"
+    http_response += response_body
+
+    client_conn.sendall(http_response.encode("utf-8"))
     client_conn.close()
 
 def run_server():
