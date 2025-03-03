@@ -2,18 +2,28 @@ import socket
 import threading
 import os
 import urllib.parse
+import logging
+import mimetypes
 
 # server address and port
-HOST, PORT = "", 8000
+HOST, PORT = "", 8007
 TEMPLATES_DIR = "templates"
 STATIC_DIR = "static"
+
+logging.basicConfig(filename="server.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+def log_request(client_addr, method, path, status_code):
+    
+    # log incoming http request with timestamp, method, path and status
+    logging.info(f"{client_addr} - {method} {path} - {status_code}")
 
 def parse_request(request):
     if "\r\n\r\n" in request:
         headers, body = request.split("\r\n\r\n", 1)
     else:
         headers, body = request, ""  # Handle cases where the request has no body
-    lines = headers.split('\r\n')
+    
+    lines = headers.split("\r\n")
     method, full_path, http_version = lines[0].split()
 
     # Remove query parameters (anything after '?')
@@ -29,7 +39,7 @@ def parse_request(request):
 def read_file(filepath, mode="r"):
     if os.path.exists(filepath):
         with open(filepath, mode) as file:
-            return file.read()
+            return file.read() if "b" not in mode else file.read()
     return None
 
 """ def get_content_type(path):
@@ -45,62 +55,86 @@ def read_file(filepath, mode="r"):
         return "image/jpeg"
     return "application/octet-stream" """
 
-def handle_request(client_conn):
-    request_data = client_conn.recv(1024).decode("utf-8")
-    print(f"received request:\n{request_data}")
+def serve_static_file(path):
+    file_path = os.path.join(STATIC_DIR, path[len("/static"):])
+    content_type, _ = mimetypes.guess_type(file_path)
 
-    method, path, headers, body = parse_request(request_data)
-
-    if method == "POST" and path == "/submit":
-        post_data = dict(urllib.parse.parse_qsl(body))
-        name = post_data.get("name", "Guest")
-
-        response_body = read_file(os.path.join(TEMPLATES_DIR, "success.html"))
-        response_body = response_body.replace("<span id=\"username\"></span>", f"<span>{name}</span>")
-
+    response_body = read_file(file_path, "rb")
+    if response_body:
         status_code = "200 OK"
-
-    elif path.startswith("/static"):
-        file_path = os.path.join(STATIC_DIR, path[len("/static/"):])
-        content_type = "text/plain"
-
-        if path.endswith(".css"):
-            content_type = "text/css"
-        elif path.endswith(".js"):
-            content_type = "application/javascript"
-        elif path.endswith(".png"):
-            content_type = "image/png"
-
-        response_body = read_file(file_path, "rb")
-        if response_body:
-            status_code = "200 OK"
-        else:
-            response_body = "<h1>404 Not Found</h1>".encode("utf-8")
-            status_code = "404 Not Found"
-
-        client_conn.sendall(f"HTTP/1.1 {status_code}\r\nContent-Type: {content_type}\r\n\r\n".encode("utf-8") + response_body)
-        client_conn.close()
-        return
-    elif path == "/":
-        response_body = read_file(os.path.join(TEMPLATES_DIR, "index.html"))
-        status_code = "200 OK" if response_body else "404 Not Found"
-    elif path == "/about":
-        response_body = read_file(os.path.join(TEMPLATES_DIR, "about.html"))
-        status_code = "200 OK" if response_body else "404 Not Found"
-
     else:
-        response_body = "<h1>404 Not Found</h1>"
-        status_code = "404 Not Found"
+        response_body = b"<h1>404 Not found</h1>"
+        status_code = "404 not found"
 
-    # Prepare HTTP response
-    http_response = f"HTTP/1.1 {status_code}\r\n"
-    http_response += "Content-Type: text/html; charset=UTF-8\r\n"
-    http_response += f"Content-Length: {len(response_body.encode('utf-8'))}\r\n"
-    http_response += "Connection: close\r\n\r\n"
-    http_response += response_body
+    return response_body, status_code, content_type or "application/octet-stream"
 
-    client_conn.sendall(http_response.encode("utf-8"))
-    client_conn.close()
+def not_found_page():
+    return "<h1>404 Not Found</h1>", "404 Not Found"
+
+def handle_form_submission(body):
+    post_data = dict(urllib.parse.parse_qsl(body))
+    name = post_data.get("name", "Guest")
+
+    response_body = read_file(os.path.join(TEMPLATES_DIR, "success.html"))
+    if response_body:
+        response_body = response_body.replace("<span id=\"username\"></span>", f"<span>{name}</span>")
+    else:
+        response_body = "<h1>Form Submission Failed</h1>"
+    return response_body, "200 OK"
+def home_page():
+    return read_file(os.path.join(TEMPLATES_DIR, "index.html")), "200 OK"
+
+def about_page():
+    return read_file(os.path.join(TEMPLATES_DIR, "about.html")), "200 OK"
+routes = {
+    "/":home_page,
+    "/about":about_page,
+}
+
+def route_request(method, path, body):
+    if method == "POST" and path == "/submit":
+        return handle_form_submission(body)
+    if path.startswith("/static"):
+        return serve_static_file(path)
+    
+    # Ensure all routes return 3 values (response_body, status_code, content_type)
+    response_body, status_code = routes.get(path, not_found_page)()
+    content_type = "text/html"  # Default content type
+    return response_body, status_code, content_type
+
+
+
+
+def handle_request(client_conn, client_addr):
+    try:
+        request_data = client_conn.recv(1024).decode("utf-8")
+
+        if not request_data.strip():  # Ignore empty requests
+            client_conn.close()
+            return
+        print(f"received request:\n{request_data}")
+
+        method, path, headers, body = parse_request(request_data)
+        response_body, status_code, content_type = route_request(method, path, body)
+
+        log_request(client_addr, method, path, status_code)
+
+        # Prepare HTTP response
+        http_response = f"HTTP/1.1 {status_code}\r\n"
+        http_response += f"Content-Type: {content_type}; charset=UTF-8\r\n"
+        http_response += f"Content-Length: {len(response_body) if isinstance(response_body, bytes) else len(response_body.encode('utf-8'))}\r\n"
+        http_response += "Connection: close\r\n\r\n"
+
+        if isinstance(response_body, str):
+            response_body = response_body.encode("utf-8")
+        
+        client_conn.sendall(http_response.encode("utf-8") + response_body)
+    except Exception as e:
+        logging.error(f"Error handling request: {e}")
+    finally:
+        client_conn.close()
+
+
 
 def run_server():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -113,7 +147,7 @@ def run_server():
         client_conn, client_addr = server_socket.accept()
         print(f"new connection from {client_addr}")
 
-        client_thread = threading.Thread(target=handle_request, args=(client_conn,))
+        client_thread = threading.Thread(target=handle_request, args=(client_conn, client_addr))
         client_thread.start()
 
 if __name__ == "__main__":
