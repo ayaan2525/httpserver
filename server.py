@@ -4,9 +4,10 @@ import os
 import urllib.parse
 import logging
 import mimetypes
+import signal
 
 # server address and port
-HOST, PORT = "", 8001
+HOST, PORT = "", 8002
 TEMPLATES_DIR = "templates"
 STATIC_DIR = "static"
 
@@ -148,14 +149,26 @@ def run_server():
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind((HOST, PORT))
     server_socket.listen(5)
-    print(f"listening on port {PORT}")
+    print(f"listening on port {PORT}. Press crl+c to stop")
 
-    while True:
-        client_conn, client_addr = server_socket.accept()
-        print(f"new connection from {client_addr}")
+    def shutdown_server(signal_received, frame):
+        print("\nShutdwon server gracefully")
+        server_socket.close()
+        os._exit(0)
+    signal.signal(signal.SIGINT, shutdown_server)
 
-        client_thread = threading.Thread(target=handle_request, args=(client_conn, client_addr))
-        client_thread.start()
+    try:
+        while True:
+            client_conn, client_addr = server_socket.accept()
+            print(f"new connection from {client_addr}")
+
+            client_thread = threading.Thread(target=handle_request, args=(client_conn, client_addr))
+            client_thread.start()
+    except KeyboardInterrupt:
+        print("\nServer is shutting down...")
+    finally:
+        server_socket.close()
+        print("Server closed successfully")
 
 if __name__ == "__main__":
     run_server()
