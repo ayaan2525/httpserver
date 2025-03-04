@@ -6,7 +6,7 @@ import logging
 import mimetypes
 
 # server address and port
-HOST, PORT = "", 8007
+HOST, PORT = "", 8001
 TEMPLATES_DIR = "templates"
 STATIC_DIR = "static"
 
@@ -81,28 +81,32 @@ def handle_form_submission(body):
     else:
         response_body = "<h1>Form Submission Failed</h1>"
     return response_body, "200 OK"
+
+
+
 def home_page():
     return read_file(os.path.join(TEMPLATES_DIR, "index.html")), "200 OK"
 
-def about_page():
-    return read_file(os.path.join(TEMPLATES_DIR, "about.html")), "200 OK"
-routes = {
-    "/":home_page,
-    "/about":about_page,
-}
+def about_page(query=""):
+    name = "Guest"
+
+    if query:
+        query_dict = dict(urllib.parse.parse_qsl(query))
+        name = query_dict.get("name", "Guest")
+    return f"<h1>Welcome {name}!</h1>", "200 OK"
 
 def route_request(method, path, body):
+    query = ""
+
+    if "?" in path:
+        path, query = path.split("?", 1)
+    
     if method == "POST" and path == "/submit":
         return handle_form_submission(body)
     if path.startswith("/static"):
         return serve_static_file(path)
-    
-    # Ensure all routes return 3 values (response_body, status_code, content_type)
-    response_body, status_code = routes.get(path, not_found_page)()
-    content_type = "text/html"  # Default content type
-    return response_body, status_code, content_type
 
-
+    return routes.get(path, not_found_page)(query) + ("text/html",)
 
 
 def handle_request(client_conn, client_addr):
@@ -134,7 +138,10 @@ def handle_request(client_conn, client_addr):
     finally:
         client_conn.close()
 
-
+routes = {
+    "/": home_page,
+    "/about": about_page,  # Updated to support query parameter
+}
 
 def run_server():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
