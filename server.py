@@ -5,18 +5,24 @@ import urllib.parse
 import logging
 import mimetypes
 import signal
+import time
 
 # server address and port
-HOST, PORT = "", 8002
+HOST, PORT = "", 8004
 TEMPLATES_DIR = "templates"
 STATIC_DIR = "static"
 
 logging.basicConfig(filename="server.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+shutdown_event = threading.Event()  # Used for clean shutdown
 
-def log_request(client_addr, method, path, status_code):
+def log_request(client_addr, method, path, status_code, headers):
     
     # log incoming http request with timestamp, method, path and status
-    logging.info(f"{client_addr} - {method} {path} - {status_code}")
+
+    user_agent = headers.get("user-agent", "unknown")
+    timestamp = time.strftime("[%Y-%m-%d %H:%M:%S]")
+    log_entry = f"{timestamp} {client_addr} - {method} {path} - {status_code} - {user_agent}"
+    logging.info(log_entry)
 
 def parse_request(request):
     if "\r\n\r\n" in request:
@@ -97,17 +103,12 @@ def about_page(query=""):
     return f"<h1>Welcome {name}!</h1>", "200 OK"
 
 def route_request(method, path, body):
-    query = ""
-
-    if "?" in path:
-        path, query = path.split("?", 1)
-    
     if method == "POST" and path == "/submit":
         return handle_form_submission(body)
     if path.startswith("/static"):
         return serve_static_file(path)
 
-    return routes.get(path, not_found_page)(query) + ("text/html",)
+    return routes.get(path, not_found_page)() + ("text/html",)
 
 
 def handle_request(client_conn, client_addr):
@@ -122,7 +123,7 @@ def handle_request(client_conn, client_addr):
         method, path, headers, body = parse_request(request_data)
         response_body, status_code, content_type = route_request(method, path, body)
 
-        log_request(client_addr, method, path, status_code)
+        log_request(client_addr, method, path, status_code, headers)
 
         # Prepare HTTP response
         http_response = f"HTTP/1.1 {status_code}\r\n"
@@ -153,16 +154,17 @@ def run_server():
 
     def shutdown_server(signal_received, frame):
         print("\nShutdwon server gracefully")
+        shutdown_event.set(5)
         server_socket.close()
         os._exit(0)
     signal.signal(signal.SIGINT, shutdown_server)
 
     try:
-        while True:
+        while not shutdown_event.is_set():
             client_conn, client_addr = server_socket.accept()
             print(f"new connection from {client_addr}")
 
-            client_thread = threading.Thread(target=handle_request, args=(client_conn, client_addr))
+            client_thread = threading.Thread(target=handle_request, args=(client_conn, client_addr), daemon=True)
             client_thread.start()
     except KeyboardInterrupt:
         print("\nServer is shutting down...")
