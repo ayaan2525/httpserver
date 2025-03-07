@@ -8,7 +8,7 @@ import signal
 import time
 
 # server address and port
-HOST, PORT = "", 8004
+HOST, PORT = "", 8012
 TEMPLATES_DIR = "templates"
 STATIC_DIR = "static"
 
@@ -151,23 +151,29 @@ def run_server():
     server_socket.bind((HOST, PORT))
     server_socket.listen(5)
     print(f"listening on port {PORT}. Press crl+c to stop")
+    
+    shutdown_event = threading.Event()  #Added event for graceful shutdown
+    active_threads = []  #track active client threads
 
     def shutdown_server(signal_received, frame):
         print("\nShutdwon server gracefully")
         shutdown_event.set(5)
         server_socket.close()
         os._exit(0)
+        
     signal.signal(signal.SIGINT, shutdown_server)
 
     try:
         while not shutdown_event.is_set():
-            client_conn, client_addr = server_socket.accept()
-            print(f"new connection from {client_addr}")
+            try:
+                client_conn, client_addr = server_socket.accept()
+                print(f"new connection from {client_addr}")
+                client_thread = threading.Thread(target=handle_request, args=(client_conn, client_addr), daemon=True)
+                client_thread.start()
+                active_threads.append(client_thread)
+            except OSError:
+                break  # Exit if the server socket is closed
 
-            client_thread = threading.Thread(target=handle_request, args=(client_conn, client_addr), daemon=True)
-            client_thread.start()
-    except KeyboardInterrupt:
-        print("\nServer is shutting down...")
     finally:
         server_socket.close()
         print("Server closed successfully")
